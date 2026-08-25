@@ -1,0 +1,129 @@
+#######################################
+# Terraform
+#######################################
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Terraform plan files
+*.tfplan
+*.plan
+
+# Terraform working directory
+.terraform/
+
+# Terraform CLI config
+.terraformrc
+terraform.rc
+
+
+#######################################
+# Terraform Cloud / HCP Terraform
+#######################################
+
+# Terraform Cloud local cache
+.terraform.d/
+
+
+#######################################
+# Provider cache
+#######################################
+
+# Provider binaries
+*.zip
+
+
+#######################################
+# Secrets / Credentials
+#######################################
+
+# Variable files containing secrets
+*.tfvars
+*.tfvars.json
+
+# Keep example variables
+!*.tfvars.example
+
+# AWS credentials
+.aws/
+.aws/credentials
+
+# Environment variables
+.env
+.env.*
+*.env
+
+
+#######################################
+# Kubernetes
+#######################################
+
+# kubeconfig
+kubeconfig
+.kube/
+.kube/config
+
+
+#######################################
+# Helm
+#######################################
+
+# Helm cache
+charts/*/charts/
+charts/*/tmp/
+
+
+#######################################
+# AWS
+#######################################
+
+# AWS SAM / CDK generated files (if used later)
+.aws-sam/
+
+
+#######################################
+# Logs
+#######################################
+
+*.log
+
+
+#######################################
+# IDE
+#######################################
+
+# VS Code
+.vscode/
+
+# IntelliJ / PyCharm
+.idea/
+
+# Terraform language server
+.terraform-ls/
+
+
+#######################################
+# OS
+#######################################
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+
+#######################################
+# Temporary files
+#######################################
+
+*.tmp
+*.temp
+*.bak
+*~
