@@ -25,7 +25,7 @@ module "eks" {
       most_recent    = true
       configuration_values = jsonencode({
         env = {
-          ENABLE_PREFIX_DELEGATION          = "true"
+          ENABLE_PREFIX_DELEGATION = "true"
         }
         nodeAgent = {
           enablePolicyEventLogs = "true"
