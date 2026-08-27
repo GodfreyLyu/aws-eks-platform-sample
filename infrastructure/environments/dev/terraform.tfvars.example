@@ -1,8 +1,12 @@
-aws_region      = "ap-northeast-1"
-cluster_name    = "eks-workshop"
-cluster_version = "1.35"
-environment     = "dev"
+aws_region       = "ap-northeast-1"
+cluster_name     = "eks-workshop"
+cluster_version  = "1.35"
+environment      = "dev"
 application_name = "ai-agent-sample"
+
+# Zero makes destroy/recreate cycles repeatable for this disposable dev environment.
+# Use a whole number from 7 through 30 for staging or production recovery protection.
+application_secret_recovery_window_in_days = 0
 
 # Replace this with your current public IP before exposing the Kubernetes API.
 cluster_endpoint_public_access_cidrs = ["203.0.113.10/32"]

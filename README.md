@@ -93,7 +93,11 @@ Terraform, AWS CLI, and `kubectl` will access the EKS API, for example `198.51.1
 Although the module default is `0.0.0.0/0` for compatibility with the existing learning setup,
 leaving the Kubernetes API open to every source is not recommended.
 
-Review the node type, capacity type, Kubernetes version, and region before applying:
+Review the node type, capacity type, Kubernetes version, region, and secret recovery window before
+applying. The default is zero days for `dev`, so a destroy followed by an immediate apply can
+recreate the fixed secret name, and 30 days for `staging` or `prod`. Set
+`application_secret_recovery_window_in_days` explicitly when a different deletion policy is
+required.
 
 ```bash
 terraform init
@@ -181,7 +185,7 @@ kubectl get ingress ai-agent-sample \
 
 ALB provisioning can take several minutes.
 
-## Optional GitHub Actions deployment
+## Optional GitHub Actions delivery
 
 Set `github_actions_oidc_subject` in `terraform.tfvars` to create the deployment role. The trust
 policy requires an exact subject rather than a repository-wide wildcard.
@@ -204,9 +208,11 @@ After `terraform apply`, add this GitHub Actions repository variable to `AiAgent
 AWS_DEPLOY_ROLE_ARN = <terraform output -raw github_actions_deploy_role_arn>
 ```
 
-Pushes to `main` then run linting and tests, build a `linux/amd64` image, push an immutable image
-tag to ECR, apply the EKS overlay, wait for secret synchronization, and verify the Deployment
-rollout. If `AWS_DEPLOY_ROLE_ARN` is absent, the deployment job is skipped while CI still runs.
+Pull requests run linting, tests, and a container build without requesting AWS credentials.
+Pushes to `main` then build a `linux/amd64` image, push a unique immutable image tag to ECR,
+apply the EKS overlay, wait for secret synchronization, and verify the Deployment rollout. If
+`AWS_DEPLOY_ROLE_ARN` is absent, the ECR publishing job stops immediately with a configuration
+error and no deployment occurs.
 
 ## Configuration contract with `AiAgentSample`
 
@@ -273,5 +279,26 @@ terraform plan -destroy
 terraform destroy
 ```
 
-Secrets Manager uses a seven-day recovery window, so destroying the stack schedules the secret
-for deletion rather than removing it immediately.
+The development example sets `application_secret_recovery_window_in_days = 0`, so destroy removes
+the Secret immediately and a later apply can reuse `eks-workshop/dev/ai-agent-sample`. This is
+appropriate for a disposable demonstration environment but permanently deletes all secret
+versions.
+
+For staging or production, set the window to 7–30 days. If such an environment is destroyed and
+must be recreated during that window, restore the scheduled Secret first and import it instead of
+deleting its retained value:
+
+```bash
+aws secretsmanager restore-secret \
+  --secret-id eks-workshop/dev/ai-agent-sample \
+  --region ap-northeast-1
+
+SECRET_ARN=$(aws secretsmanager describe-secret \
+  --secret-id eks-workshop/dev/ai-agent-sample \
+  --region ap-northeast-1 \
+  --query ARN \
+  --output text)
+
+terraform import aws_secretsmanager_secret.application "$SECRET_ARN"
+terraform apply
+```

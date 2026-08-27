@@ -38,6 +38,26 @@ variable "application_name" {
   }
 }
 
+variable "application_secret_recovery_window_in_days" {
+  description = "Optional Secrets Manager recovery window override; null uses 0 days for dev and 30 days for staging or prod"
+  type        = number
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.application_secret_recovery_window_in_days == null ||
+      var.application_secret_recovery_window_in_days == 0 ||
+      (
+        var.application_secret_recovery_window_in_days >= 7 &&
+        var.application_secret_recovery_window_in_days <= 30 &&
+        floor(var.application_secret_recovery_window_in_days) == var.application_secret_recovery_window_in_days
+      )
+    )
+    error_message = "application_secret_recovery_window_in_days must be null, 0, or a whole number from 7 through 30."
+  }
+}
+
 variable "cluster_endpoint_public_access_cidrs" {
   description = "CIDR blocks allowed to reach the public EKS API endpoint; restrict this to trusted addresses"
   type        = list(string)

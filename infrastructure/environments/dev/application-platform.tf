@@ -1,6 +1,10 @@
 locals {
   application_namespace   = var.application_name
   application_secret_name = "${var.cluster_name}/${var.environment}/${var.application_name}"
+  application_secret_recovery_window_in_days = coalesce(
+    var.application_secret_recovery_window_in_days,
+    var.environment == "dev" ? 0 : 30,
+  )
 }
 
 module "application_ecr" {
@@ -15,7 +19,7 @@ module "application_ecr" {
 resource "aws_secretsmanager_secret" "application" {
   name                    = local.application_secret_name
   description             = "Runtime secrets for ${var.application_name} on ${var.cluster_name}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = local.application_secret_recovery_window_in_days
 
   tags = {
     Application = var.application_name
