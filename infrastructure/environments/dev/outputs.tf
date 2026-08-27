@@ -131,3 +131,42 @@ output "kubectl_config_command" {
     var.aws_region
   )
 }
+
+#############################################
+# Application delivery
+#############################################
+
+output "application_namespace" {
+  description = "Kubernetes namespace reserved for the AI agent"
+  value       = kubernetes_namespace_v1.application.metadata[0].name
+}
+
+output "application_ecr_repository_name" {
+  description = "ECR repository name used by the deployment workflow"
+  value       = module.application_ecr.repository_name
+}
+
+output "application_ecr_repository_url" {
+  description = "ECR repository URL used for the AI agent image"
+  value       = module.application_ecr.repository_url
+}
+
+output "application_secret_name" {
+  description = "Secrets Manager secret name; create a secret value separately so credentials never enter Terraform state"
+  value       = aws_secretsmanager_secret.application.name
+}
+
+output "application_secret_arn" {
+  description = "Secrets Manager secret ARN read by External Secrets Operator"
+  value       = aws_secretsmanager_secret.application.arn
+}
+
+output "github_actions_deploy_role_arn" {
+  description = "GitHub Actions OIDC role ARN; null when github_actions_oidc_subject is not configured"
+  value       = try(aws_iam_role.github_actions_deploy[0].arn, null)
+}
+
+output "application_url_command" {
+  description = "Command that prints the ALB hostname after the Kubernetes overlay is deployed"
+  value       = "kubectl get ingress ai-agent-sample --namespace ${local.application_namespace} --output jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
+}

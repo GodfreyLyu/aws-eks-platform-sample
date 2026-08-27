@@ -15,11 +15,23 @@ module "eks" {
   name                                     = var.cluster_name
   kubernetes_version                       = var.cluster_version
   endpoint_public_access                   = true
+  endpoint_public_access_cidrs             = var.endpoint_public_access_cidrs
   enable_cluster_creator_admin_permissions = true
+  enabled_log_types                        = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  cloudwatch_log_group_retention_in_days   = var.cloudwatch_log_retention_in_days
+  access_entries                           = var.access_entries
 
   addons = {
-    coredns    = {}
-    kube-proxy = {}
+    coredns = {
+      most_recent = true
+    }
+    eks-pod-identity-agent = {
+      before_compute = true
+      most_recent    = true
+    }
+    kube-proxy = {
+      most_recent = true
+    }
     vpc-cni = {
       before_compute = true
       most_recent    = true
@@ -43,7 +55,10 @@ module "eks" {
 
   eks_managed_node_groups = {
     default = {
-      instance_types           = ["t3.micro"]
+      ami_type                 = "AL2023_x86_64_STANDARD"
+      capacity_type            = var.node_capacity_type
+      disk_size                = 30
+      instance_types           = var.node_instance_types
       force_update_version     = true
       use_name_prefix          = false
       iam_role_name            = "${var.cluster_name}-ng-default"
@@ -62,7 +77,5 @@ module "eks" {
       }
     }
   }
-
 }
-
 

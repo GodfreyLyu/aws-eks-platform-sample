@@ -1,0 +1,20 @@
+aws_region      = "ap-northeast-1"
+cluster_name    = "eks-workshop"
+cluster_version = "1.35"
+environment     = "dev"
+application_name = "ai-agent-sample"
+
+# Replace this with your current public IP before exposing the Kubernetes API.
+cluster_endpoint_public_access_cidrs = ["203.0.113.10/32"]
+
+node_instance_types = ["t3.small"]
+node_capacity_type  = "ON_DEMAND"
+
+# Optional: enables the least-privilege GitHub Actions deployment role.
+# For repositories using GitHub immutable OIDC subjects, obtain the numeric owner and
+# repository IDs from the GitHub API and use the second format.
+# github_actions_oidc_subject = "repo:GodfreyLyu/AiAgentSample:ref:refs/heads/main"
+# github_actions_oidc_subject = "repo:GodfreyLyu@OWNER_ID/AiAgentSample@REPOSITORY_ID:ref:refs/heads/main"
+
+# If this AWS account already has the GitHub OIDC provider, set its ARN to avoid a duplicate.
+# github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
