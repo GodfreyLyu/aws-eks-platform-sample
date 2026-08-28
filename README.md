@@ -11,14 +11,21 @@ The default environment is deployed to `ap-northeast-1` and uses Kubernetes `1.3
 flowchart LR
   Developer[Developer or GitHub Actions] -->|Build and push| ECR[Amazon ECR]
   Developer -->|Namespace-scoped deployment| EKS[Amazon EKS]
-  User[Demo client] --> ALB[Application Load Balancer]
-  ALB --> Service[Kubernetes Service]
-  Service --> Pod[FastAPI AI agent Pod]
+  User[Demo client] -->|HTTPS| CF[CloudFront default domain]
+  CF -->|VPC Origin| ALB[Internal Application Load Balancer]
+  ALB --> TG[IP target group]
+  TG --> Pod[FastAPI AI agent Pod]
+  EKS -. TargetGroupBinding registers Pod IP .-> TG
   ECR --> Pod
   SM[AWS Secrets Manager] -->|EKS Pod Identity| ESO[External Secrets Operator]
   ESO -->|Kubernetes Secret| Pod
   Pod --> DeepSeek[DeepSeek API]
 ```
+
+The browser-facing connection is HTTPS and uses the certificate included with the default
+`*.cloudfront.net` domain. CloudFront reaches the ALB through a VPC Origin, so the ALB has no
+public endpoint. The origin connection is HTTP inside the private VPC; see
+[Security and production notes](#security-and-production-notes) if end-to-end TLS is required.
 
 ## What Terraform creates
 
@@ -32,13 +39,18 @@ flowchart LR
   and Kubernetes network policy support are enabled.
 - A private ECR repository with immutable tags, scan-on-push, and lifecycle rules for old images.
 - AWS Load Balancer Controller, installed with Helm and authorized through EKS Pod Identity.
+- An internal ALB in the private subnets, an IP target group, and a listener. A Kubernetes
+  `TargetGroupBinding` registers ready application Pod IPs with this Terraform-managed target
+  group, avoiding a second Terraform apply or an internet-facing Kubernetes Ingress.
+- A CloudFront VPC Origin and distribution. The distribution redirects HTTP viewers to HTTPS,
+  accepts every API method, forwards viewer request data except `Host`, and disables caching so
+  authenticated API responses are never shared between sessions.
 - External Secrets Operator, installed with Helm and authorized to read only this application's
   Secrets Manager secret.
 - An application namespace with the Kubernetes `restricted` Pod Security Standard enforced.
-- An optional GitHub Actions OIDC role that can push images to this ECR repository and administer
-  built-in resources only within the application namespace. A namespace-scoped Kubernetes Role
-  adds the required `ExternalSecret` and `SecretStore` custom-resource permissions without
-  granting cluster-admin access.
+- An optional GitHub Actions OIDC role that can push images to this ECR repository, inspect the
+  application target group's health, and access EKS. A namespace-scoped Kubernetes Role grants
+  only the resources rendered by the application overlay; no cluster-admin access is granted.
 
 Terraform creates the Secrets Manager secret resource, but deliberately does not create a secret
 value. The DeepSeek API key and application bearer token therefore do not enter Terraform state,
@@ -95,9 +107,11 @@ Terraform, AWS CLI, and `kubectl` will access the EKS API, for example `198.51.1
 Although the module default is `0.0.0.0/0` for compatibility with the existing learning setup,
 leaving the Kubernetes API open to every source is not recommended.
 
-Review the node type, capacity type, Kubernetes version, region, and secret recovery window before
-applying. The default is zero days for `dev`, so a destroy followed by an immediate apply can
-recreate the fixed secret name, and 30 days for `staging` or `prod`. Set
+Review the node type, capacity type, Kubernetes version, region, CloudFront price class, and secret
+recovery window before applying. `PriceClass_200` is the default because it includes Asia and is
+appropriate for this Japan-region demonstration. The secret recovery default is zero days for
+`dev`, so a destroy followed by an immediate apply can recreate the fixed secret name, and 30 days
+for `staging` or `prod`. Set
 `application_secret_recovery_window_in_days` explicitly when a different deletion policy is
 required.
 
@@ -170,6 +184,9 @@ kubectl wait externalsecret/ai-agent-sample-secrets \
 kubectl rollout status deployment/ai-agent-sample \
   --timeout=300s \
   --namespace ai-agent-sample
+
+kubectl get targetgroupbinding ai-agent-sample \
+  --namespace ai-agent-sample
 ```
 
 `kubectl apply` initially uses the placeholder image declared in the Kustomize overlay; the
@@ -177,27 +194,42 @@ following `kubectl set image` command immediately replaces it with the image jus
 GitHub Actions workflow updates the Kustomize image before applying, so automated deployments do
 not have this intermediate state.
 
-Retrieve the ALB hostname after the controller has finished provisioning it:
+The `TargetGroupBinding` does not create an ALB. It connects the Kubernetes Service to the target
+group already created by Terraform and registers the ready Pod IP. Confirm that the target has
+become healthy:
 
 ```bash
-kubectl get ingress ai-agent-sample \
-  --namespace ai-agent-sample \
-  --output jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo
+TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+  --names ai-agent-sample-dev-tg \
+  --region ap-northeast-1 \
+  --query 'TargetGroups[0].TargetGroupArn' \
+  --output text)
+
+aws elbv2 wait target-in-service \
+  --target-group-arn "$TARGET_GROUP_ARN" \
+  --region ap-northeast-1
 ```
 
-ALB provisioning can take several minutes.
+Then retrieve and test the public HTTPS endpoint from the Terraform environment directory:
+
+```bash
+terraform output -raw application_url; echo
+curl "$(terraform output -raw application_url)/health/ready"
+```
+
+CloudFront VPC Origin and distribution deployment can take several minutes. Until the Pod has
+joined the target group and passed the ALB health check, CloudFront can return a temporary 503.
 
 ## Optional GitHub Actions delivery
 
 Set `github_actions_oidc_subject` in `terraform.tfvars` to create the deployment role. The trust
 policy requires an exact subject rather than a repository-wide wildcard.
 
-The EKS access entry associates `AmazonEKSAdminPolicy` only with the application namespace for
-built-in Kubernetes resources. It also maps the IAM role to the `ai-agent-sample-deployers`
-Kubernetes group. A RoleBinding in that namespace grants this group `get`, `list`, `watch`,
-`create`, `update`, and `patch` only for `ExternalSecret` and `SecretStore`. This additional RBAC
-is required because EKS access policies do not automatically authorize third-party custom
-resources.
+The EKS access entry maps the IAM role to the `ai-agent-sample-deployers` Kubernetes group. A
+RoleBinding in the application namespace grants that group `get`, `list`, `watch`, `create`,
+`update`, and `patch` for the rendered ConfigMap, Service, Deployment, `ExternalSecret`,
+`SecretStore`, and `TargetGroupBinding` resources. It cannot change resources in another
+namespace, create cluster-scoped objects, read Kubernetes Secrets, or delete workloads.
 
 For repositories using GitHub immutable OIDC subjects, obtain the owner and repository numeric
 IDs from the public API:
@@ -219,9 +251,9 @@ AWS_DEPLOY_ROLE_ARN = <terraform output -raw github_actions_deploy_role_arn>
 
 Pull requests run linting, tests, and a container build without requesting AWS credentials.
 Pushes to `main` then build a `linux/amd64` image, push a unique immutable image tag to ECR,
-apply the EKS overlay, wait for secret synchronization, and verify the Deployment rollout. If
-`AWS_DEPLOY_ROLE_ARN` is absent, the ECR publishing job stops immediately with a configuration
-error and no deployment occurs.
+apply the EKS overlay, wait for secret synchronization and Deployment rollout, and finally wait
+until the ALB reports the Pod target as healthy. If `AWS_DEPLOY_ROLE_ARN` is absent, the ECR
+publishing job stops immediately with a configuration error and no deployment occurs.
 
 ## Configuration contract with `AiAgentSample`
 
@@ -235,19 +267,31 @@ defaults:
 | Application and namespace | `ai-agent-sample` |
 | ECR repository | `ai-agent-sample` |
 | Secrets Manager secret | `eks-workshop/dev/ai-agent-sample` |
+| ALB target group | `ai-agent-sample-dev-tg` |
 
 If you change any corresponding Terraform variable, update the application workflow environment,
-the EKS `SecretStore` region, and the `ExternalSecret` remote key before deploying.
+the EKS `SecretStore` region, the `ExternalSecret` remote key, and the EKS
+`TargetGroupBinding.targetGroupName` before deploying.
 
 ## Security and production notes
 
-- Worker nodes run in private subnets; the internet-facing ALB runs in public subnets.
+- Worker nodes and the internal ALB run in private subnets. The ALB security group accepts port
+  80 only from the AWS-managed CloudFront origin-facing prefix list and sends port 8000 only to
+  the EKS node security group.
 - The application Pod runs as UID/GID `10001`, drops Linux capabilities, prevents privilege
   escalation, uses a read-only root filesystem, and does not mount a Kubernetes service-account
   token.
-- The included ALB Ingress listens on public HTTP for a short-lived portfolio demonstration. Do
-  not transmit a reusable bearer token over it. A persistent or production deployment should use
-  an ACM certificate, HTTPS redirect, restricted source CIDRs, and optionally AWS WAF.
+- Client-to-CloudFront traffic uses HTTPS. CloudFront-to-ALB traffic uses HTTP over the private VPC
+  Origin path. If policy requires encryption on every hop, use a private DNS record under a domain
+  you control for the origin, attach a matching regional ACM certificate to an ALB HTTPS listener,
+  update the CloudFront origin domain, and change the VPC Origin policy to `https-only`.
+- The managed CloudFront policies deliberately disable caching and forward all viewer fields except
+  `Host`; this preserves bearer authentication, cookies, query strings, and API request bodies.
+  CloudFront VPC Origins do not support WebSockets or gRPC. This FastAPI sample uses ordinary HTTP
+  requests and does not depend on either feature.
+- A production public endpoint should add AWS WAF, access logging, alarms, and a custom domain with
+  an ACM certificate in `us-east-1`. The default CloudFront certificate is sufficient for the
+  generated `*.cloudfront.net` portfolio URL.
 - One NAT Gateway reduces development cost but is not a cross-AZ highly available design.
 - The application intentionally runs one replica because conversation history and coding
   workspaces are Pod-local. Add shared state such as Redis and an appropriate persistent or
@@ -257,10 +301,10 @@ the EKS `SecretStore` region, and the `ExternalSecret` remote key before deployi
 
 ## Cleanup
 
-This platform incurs charges for EKS, EC2 nodes, NAT Gateway, ALB, CloudWatch Logs, and other AWS
-resources. Delete the Kubernetes overlay before destroying Terraform so AWS Load Balancer
-Controller can remove the ALB and its associated resources. Run this from the application
-repository:
+This platform incurs charges for EKS, EC2 nodes, NAT Gateway, ALB, CloudFront, CloudWatch Logs, and
+other AWS resources. Delete the Kubernetes overlay before destroying Terraform so AWS Load
+Balancer Controller can deregister the Pod IP cleanly. Terraform owns and removes the CloudFront
+distribution, VPC Origin, ALB, listener, and target group. Run this from the application repository:
 
 ```bash
 kubectl delete -k deploy/overlays/eks

@@ -166,7 +166,27 @@ output "github_actions_deploy_role_arn" {
   value       = try(aws_iam_role.github_actions_deploy[0].arn, null)
 }
 
+output "application_alb_dns_name" {
+  description = "Private DNS name of the internal application ALB; it is not a public entry point"
+  value       = aws_lb.application.dns_name
+}
+
+output "application_target_group_name" {
+  description = "Target group referenced by the EKS TargetGroupBinding"
+  value       = aws_lb_target_group.application.name
+}
+
+output "application_cloudfront_domain_name" {
+  description = "CloudFront default domain name for the application"
+  value       = aws_cloudfront_distribution.application.domain_name
+}
+
+output "application_url" {
+  description = "Public HTTPS URL for the AI agent API"
+  value       = "https://${aws_cloudfront_distribution.application.domain_name}"
+}
+
 output "application_url_command" {
-  description = "Command that prints the ALB hostname after the Kubernetes overlay is deployed"
-  value       = "kubectl get ingress ai-agent-sample --namespace ${local.application_namespace} --output jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
+  description = "Command that prints the public CloudFront HTTPS URL"
+  value       = "terraform output -raw application_url"
 }

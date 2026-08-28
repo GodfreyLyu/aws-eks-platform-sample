@@ -99,6 +99,32 @@ variable "external_secrets_chart_version" {
   default     = "2.5.0"
 }
 
+variable "cloudfront_price_class" {
+  description = "CloudFront edge-location price class used by the application distribution"
+  type        = string
+  default     = "PriceClass_200"
+
+  validation {
+    condition     = contains(["PriceClass_100", "PriceClass_200", "PriceClass_All"], var.cloudfront_price_class)
+    error_message = "cloudfront_price_class must be PriceClass_100, PriceClass_200, or PriceClass_All."
+  }
+}
+
+variable "cloudfront_origin_read_timeout_seconds" {
+  description = "Maximum time CloudFront waits for a response from the private ALB origin"
+  type        = number
+  default     = 120
+
+  validation {
+    condition = (
+      var.cloudfront_origin_read_timeout_seconds >= 1 &&
+      var.cloudfront_origin_read_timeout_seconds <= 120 &&
+      floor(var.cloudfront_origin_read_timeout_seconds) == var.cloudfront_origin_read_timeout_seconds
+    )
+    error_message = "cloudfront_origin_read_timeout_seconds must be a whole number from 1 through 120."
+  }
+}
+
 variable "github_actions_oidc_subject" {
   description = "Exact GitHub OIDC subject allowed to deploy; null disables creation of the CI/CD role"
   type        = string

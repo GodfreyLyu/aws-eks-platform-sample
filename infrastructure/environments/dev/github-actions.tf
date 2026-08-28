@@ -13,15 +13,6 @@ locals {
     github_actions = {
       principal_arn     = aws_iam_role.github_actions_deploy[0].arn
       kubernetes_groups = [local.github_actions_kubernetes_group]
-      policy_associations = {
-        application_admin = {
-          policy_arn = "arn:${data.aws_partition.current.partition}:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy"
-          access_scope = {
-            type       = "namespace"
-            namespaces = [local.application_namespace]
-          }
-        }
-      }
     }
   } : {}
 }
@@ -97,6 +88,16 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     actions   = ["eks:DescribeCluster"]
     resources = ["arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/${var.cluster_name}"]
   }
+
+  statement {
+    sid    = "VerifyApplicationTargets"
+    effect = "Allow"
+    actions = [
+      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeTargetHealth",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions_deploy" {
@@ -107,15 +108,13 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   policy = data.aws_iam_policy_document.github_actions_deploy[0].json
 }
 
-# EKS access policies authorize built-in Kubernetes resources but do not
-# automatically cover third-party CRDs. Map the deploy role to a Kubernetes
-# group and grant only the namespaced External Secrets resources applied by
-# the application workflow.
-resource "kubernetes_role_v1" "github_actions_external_secrets" {
+# Map the deployment role to a Kubernetes group and grant only the namespaced
+# resources that are rendered by the application's EKS Kustomize overlay.
+resource "kubernetes_role_v1" "github_actions_application_deployer" {
   count = local.github_actions_enabled ? 1 : 0
 
   metadata {
-    name      = "${var.application_name}-external-secrets-deployer"
+    name      = "${var.application_name}-deployer"
     namespace = kubernetes_namespace_v1.application.metadata[0].name
     labels = {
       "app.kubernetes.io/name"       = var.application_name
@@ -125,17 +124,35 @@ resource "kubernetes_role_v1" "github_actions_external_secrets" {
   }
 
   rule {
+    api_groups = [""]
+    resources  = ["configmaps", "services"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch"]
+  }
+
+  rule {
+    api_groups = ["apps"]
+    resources  = ["deployments"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch"]
+  }
+
+  rule {
     api_groups = ["external-secrets.io"]
     resources  = ["externalsecrets", "secretstores"]
     verbs      = ["get", "list", "watch", "create", "update", "patch"]
   }
+
+  rule {
+    api_groups = ["elbv2.k8s.aws"]
+    resources  = ["targetgroupbindings"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch"]
+  }
 }
 
-resource "kubernetes_role_binding_v1" "github_actions_external_secrets" {
+resource "kubernetes_role_binding_v1" "github_actions_application_deployer" {
   count = local.github_actions_enabled ? 1 : 0
 
   metadata {
-    name      = "${var.application_name}-external-secrets-deployer"
+    name      = "${var.application_name}-deployer"
     namespace = kubernetes_namespace_v1.application.metadata[0].name
     labels = {
       "app.kubernetes.io/name"       = var.application_name
@@ -147,7 +164,7 @@ resource "kubernetes_role_binding_v1" "github_actions_external_secrets" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
-    name      = kubernetes_role_v1.github_actions_external_secrets[0].metadata[0].name
+    name      = kubernetes_role_v1.github_actions_application_deployer[0].metadata[0].name
   }
 
   subject {

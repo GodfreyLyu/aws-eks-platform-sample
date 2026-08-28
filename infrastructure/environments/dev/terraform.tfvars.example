@@ -14,6 +14,10 @@ cluster_endpoint_public_access_cidrs = ["203.0.113.10/32"]
 node_instance_types = ["t3.small"]
 node_capacity_type  = "ON_DEMAND"
 
+# PriceClass_200 includes North America, Europe, Asia, the Middle East, and Africa.
+cloudfront_price_class                 = "PriceClass_200"
+cloudfront_origin_read_timeout_seconds = 120
+
 # Optional: enables the least-privilege GitHub Actions deployment role.
 # For repositories using GitHub immutable OIDC subjects, obtain the numeric owner and
 # repository IDs from the GitHub API and use the second format.
