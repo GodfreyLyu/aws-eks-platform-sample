@@ -327,7 +327,7 @@ if [ "$IMAGE_IDS" != "[]" ]; then
     --image-ids "$IMAGE_IDS"
 fi
 
-cd /path/to/aws-eks-paltform-sample/infrastructure/environments/dev
+cd /path/to/aws-eks-platform-sample/infrastructure/environments/dev
 terraform plan -destroy
 terraform destroy
 ```
