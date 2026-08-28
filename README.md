@@ -36,7 +36,9 @@ flowchart LR
   Secrets Manager secret.
 - An application namespace with the Kubernetes `restricted` Pod Security Standard enforced.
 - An optional GitHub Actions OIDC role that can push images to this ECR repository and administer
-  resources only within the application namespace.
+  built-in resources only within the application namespace. A namespace-scoped Kubernetes Role
+  adds the required `ExternalSecret` and `SecretStore` custom-resource permissions without
+  granting cluster-admin access.
 
 Terraform creates the Secrets Manager secret resource, but deliberately does not create a secret
 value. The DeepSeek API key and application bearer token therefore do not enter Terraform state,
@@ -189,6 +191,13 @@ ALB provisioning can take several minutes.
 
 Set `github_actions_oidc_subject` in `terraform.tfvars` to create the deployment role. The trust
 policy requires an exact subject rather than a repository-wide wildcard.
+
+The EKS access entry associates `AmazonEKSAdminPolicy` only with the application namespace for
+built-in Kubernetes resources. It also maps the IAM role to the `ai-agent-sample-deployers`
+Kubernetes group. A RoleBinding in that namespace grants this group `get`, `list`, `watch`,
+`create`, `update`, and `patch` only for `ExternalSecret` and `SecretStore`. This additional RBAC
+is required because EKS access policies do not automatically authorize third-party custom
+resources.
 
 For repositories using GitHub immutable OIDC subjects, obtain the owner and repository numeric
 IDs from the public API:
